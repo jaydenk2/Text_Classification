@@ -1,4 +1,4 @@
-import argparse  # <--- NEW IMPORT
+import argparse
 import pandas as pd
 import numpy as np
 import torch
@@ -12,9 +12,9 @@ from src.train import train_model
 from src.utils import plot_training_history
 
 # --- IMPORTS FOR YOUR NEW MODELS ---
-from models.CNN import TextCNN
-from models.Transformer import TransformerClassifier
-# from src.model import SiameseLSTM, BertClassifier # (Commented out as requested)
+# Ensure your folder is named "Models" (Capital M)
+from Models.CNN import TextCNN
+from Models.Transformer import TransformerClassifier
 
 import logging
 from transformers import logging as hf_logging
@@ -65,16 +65,27 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Running on device: {device}")
 
-    # ... (The rest of your code remains exactly the same from here down) ...
     # ---------------------------------------------------------
     # 1. PREPARE DATA
     # ---------------------------------------------------------
     print("Loading and splitting data...")
     try:
+        # Try reading with tabs first (standard Quora format)
         df = pd.read_csv(CONFIG['data_path'], sep='\t', on_bad_lines='skip')
     except FileNotFoundError:
-        print(f"ERROR: Could not find file at {CONFIG['data_path']}")
-        return
+        # Fallback to standard CSV if user converted it
+        try:
+            df = pd.read_csv(CONFIG['data_path'])
+        except:
+            print(f"ERROR: Could not find file at {CONFIG['data_path']}")
+            return
+
+    # --- CRITICAL FIX: CLEAN DATA ---
+    # Drop rows where 'is_duplicate' is NaN or missing
+    df = df.dropna(subset=['is_duplicate'])
+    # Convert labels to integers (handles cases where they might be floats like 1.0)
+    df['is_duplicate'] = df['is_duplicate'].astype(int)
+    # --------------------------------
 
     # Optional: Subsample for speed during debugging
     # df = df.sample(frac=0.1, random_state=CONFIG['seed']) 
@@ -97,23 +108,17 @@ def main():
     print("Initializing Tokenizer and Datasets...")
     # We use BERT tokenizer for everything to get consistent word-to-id mapping
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-    
-    # If using CNN/Transformer (non-siamese), ensure dataset_mode is 'concat'
-    # so the two questions are joined into one sequence.
-    mode = CONFIG['dataset_mode']
-    if CONFIG['model_type'] in ['cnn', 'transformer', 'bert']:
-        mode = 'concat' # Force concat for these architectures
         
     train_dataset = QuoraDataset(
         csv_file='data/train_split.csv',
         tokenizer=tokenizer,
-        max_length=CONFIG['max_length'],
+        max_length=CONFIG['max_length']
     )
     
     val_dataset = QuoraDataset(
         csv_file='data/val_split.csv',
         tokenizer=tokenizer,
-        max_length=CONFIG['max_length'],
+        max_length=CONFIG['max_length']
     )
     
     train_loader = DataLoader(train_dataset, batch_size=CONFIG['batch_size'], shuffle=True)
@@ -140,12 +145,9 @@ def main():
             num_classes=num_classes,
             n_heads=4
         )
-    elif CONFIG['model_type'] == 'lstm':
-        model = SiameseLSTM(vocab_size=vocab_size, embedding_dim=128, hidden_dim=256)
-    elif CONFIG['model_type'] == 'bert':
-        model = BertClassifier()
     else:
-        raise ValueError(f"Unknown model type: {CONFIG['model_type']}")
+        # If user asks for bert/lstm but you haven't implemented them yet
+        raise ValueError(f"Model type '{CONFIG['model_type']}' is not set up in main.py yet.")
 
     model.to(device)
 
