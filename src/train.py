@@ -27,7 +27,7 @@ def train_one_epoch(model, iterator, optimizer, criterion, device):
     
     model.train()
     
-    for batch in tqdm(iterator, desc="Training", leave=False):
+    for batch in tqdm(iterator, desc="Training", leave=False, mininterval=1.0, ncols=100):
         # 1. Unpack batch
         # Extract 'input_ids' specifically for CNN/Transformer
         inputs = batch['input_ids'].to(device)
@@ -58,7 +58,7 @@ def evaluate(model, iterator, criterion, device):
     model.eval()
     
     with torch.no_grad():
-        for batch in tqdm(iterator, desc="Evaluating", leave=False):
+        for batch in tqdm(iterator, desc="Evaluating", leave=False, mininterval=1.0, ncols=100):
             inputs = batch['input_ids'].to(device)
             labels = batch['label'].to(device).long()
 

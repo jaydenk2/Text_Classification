@@ -1,3 +1,4 @@
+import argparse  # <--- NEW IMPORT
 import pandas as pd
 import numpy as np
 import torch
@@ -11,30 +12,25 @@ from src.train import train_model
 from src.utils import plot_training_history
 
 # --- IMPORTS FOR YOUR NEW MODELS ---
-# Make sure your folder is named 'Models' and has an __init__.py
 from models.CNN import TextCNN
 from models.Transformer import TransformerClassifier
-# Keep existing models if you want
+# from src.model import SiameseLSTM, BertClassifier # (Commented out as requested)
 
 import logging
 from transformers import logging as hf_logging
 hf_logging.set_verbosity_error()
 
-# --- CONFIGURATION ---
+# --- DEFAULT CONFIGURATION ---
 CONFIG = {
     'seed': 42,
     'data_path': 'data/quora_duplicate_questions (1).tsv', 
     'batch_size': 64,
     'epochs': 5,
     'learning_rate': 0.001,
-    'max_length': 64, # CNN/Transformer handle longer sequences well, but 64 is faster
+    'max_length': 64,
     'test_size': 0.2,
-    
-    # CHANGE THIS to 'cnn', 'transformer', 'bert', or 'lstm'
-    'model_type': 'cnn',  
-    
-    # Use 'concat' for CNN/Transformer/BERT, 'separate' for Siamese LSTM
-    'dataset_mode': 'concat' 
+    'model_type': 'cnn',   # Default, will be overwritten by args
+    'dataset_mode': 'concat'
 }
 
 def set_seed(seed):
@@ -43,10 +39,33 @@ def set_seed(seed):
     np.random.seed(seed)
 
 def main():
+    # ---------------------------------------------------------
+    # 0. PARSE ARGUMENTS
+    # ---------------------------------------------------------
+    parser = argparse.ArgumentParser(description="Train Quora Duplicate Question Model")
+    
+    # Add arguments
+    parser.add_argument('--model', type=str, default='cnn', choices=['cnn', 'transformer', 'lstm', 'bert'],
+                        help='Choose model architecture: cnn, transformer, lstm, or bert')
+    parser.add_argument('--epochs', type=int, default=5, 
+                        help='Number of training epochs')
+    
+    args = parser.parse_args()
+    
+    # Overwrite CONFIG with command line arguments
+    CONFIG['model_type'] = args.model
+    CONFIG['epochs'] = args.epochs
+    
+    print(f"--- Configuration ---")
+    print(f"Model: {CONFIG['model_type']}")
+    print(f"Epochs: {CONFIG['epochs']}")
+    print(f"---------------------")
+
     set_seed(CONFIG['seed'])
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Running on device: {device}")
 
+    # ... (The rest of your code remains exactly the same from here down) ...
     # ---------------------------------------------------------
     # 1. PREPARE DATA
     # ---------------------------------------------------------
