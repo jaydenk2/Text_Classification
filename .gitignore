@@ -1,0 +1,24 @@
+# macOS system files
+.DS_Store
+
+# C/C++ compiled files
+*.o
+*.obj
+*.out
+*.exe
+*.dSYM/
+
+# Python (if you use it)
+__pycache__/
+*.pyc
+.venv/
+env/
+
+# IDE settings (VS Code, etc.)
+.vscode/
+.idea/
+
+# Large Data & Models
+*.pt
+*.pth
+*.tsv
