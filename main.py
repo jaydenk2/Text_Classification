@@ -13,8 +13,8 @@ from src.utils import plot_training_history
 
 # --- IMPORTS FOR YOUR NEW MODELS ---
 # Ensure your folder is named "Models" (Capital M)
-from Models.CNN import TextCNN
-from Models.Transformer import TransformerClassifier
+from models.CNN import TextCNN
+from models.Transformer import TransformerClassifier
 
 import logging
 from transformers import logging as hf_logging
