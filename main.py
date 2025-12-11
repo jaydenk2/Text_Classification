@@ -24,7 +24,7 @@ hf_logging.set_verbosity_error()
 CONFIG = {
     'seed': 42,
     'data_path': 'data/quora_duplicate_questions (1).tsv', 
-    'batch_size': 64,
+    'batch_size': 512,
     'epochs': 5,
     'learning_rate': 0.001,
     'max_length': 64,
@@ -121,8 +121,8 @@ def main():
         max_length=CONFIG['max_length']
     )
     
-    train_loader = DataLoader(train_dataset, batch_size=CONFIG['batch_size'], shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=CONFIG['batch_size'], shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=CONFIG['batch_size'], shuffle=True, num_workers=4, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=CONFIG['batch_size'], shuffle=False, num_workers=4, pin_memory=True)
 
     # ---------------------------------------------------------
     # 3. INITIALIZE MODEL
