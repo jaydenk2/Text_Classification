@@ -39,11 +39,18 @@ def main():
     set_seed(CONFIG['seed'])
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Running on device: {device}")
+
     print("Loading data...")
-    df = pd.read_csv(CONFIG['data_path'], sep='\t', on_bad_lines='skip', quoting=3)
-    df = df.dropna(subset=expected_cols)
+    try:
+        df = pd.read_csv(CONFIG['data_path'], sep='\t', on_bad_lines='skip', quoting=3, low_memory=False)
+    except Exception:
+        df = pd.read_csv('data/quora_duplicate_questions.csv', on_bad_lines='skip', low_memory=False)
+
+    df = df.dropna(subset=['question1', 'question2', 'is_duplicate'])
     df['is_duplicate'] = df['is_duplicate'].astype(int)
+    
     print(f"Total valid samples: {len(df)}")
+
     train_df, val_df = train_test_split(
         df, 
         test_size=CONFIG['test_size'], 
@@ -53,8 +60,10 @@ def main():
 
     print("Initializing Manual Tokenizer...")
     tokenizer = SimpleTokenizer(min_freq=CONFIG['min_freq'])
+    
     all_train_text = pd.concat([train_df['question1'], train_df['question2']]).tolist()
     tokenizer.build_vocab(all_train_text)
+
     print("Encoding datasets...")
     train_dataset = QuoraDataset(train_df, tokenizer, CONFIG['max_length'])
     val_dataset = QuoraDataset(val_df, tokenizer, CONFIG['max_length'])
@@ -72,6 +81,7 @@ def main():
         model = TransformerClassifier(vocab_size, 128, num_classes, n_heads=4)
 
     model.to(device)
+
     history = train_model(
         model=model,
         train_iterator=train_loader,
