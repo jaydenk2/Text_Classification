@@ -64,17 +64,15 @@ def evaluate(model, iterator, criterion, device):
     return metrics
 
 
-def train_model(model, train_iterator, valid_iterator, epochs=5, lr=0.001, save_path='best_model.pt', device=None): # main training function
+def train_model(model, train_iterator, valid_iterator, epochs=5, lr=0.001, save_path='best_model.pt', device=None):
     if device is None:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Training on device: {device}")
-    
     model = model.to(device)
     criterion = nn.CrossEntropyLoss().to(device)
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    
     best_valid_loss = float('inf')
-    
+    history = {'train_loss': [], 'train_acc': [], 'valid_loss': [], 'valid_acc': []}
     for epoch in range(epochs):
         print(f"\nEpoch: {epoch+1}/{epochs}")
         train_res = train_one_epoch(model, train_iterator, optimizer, criterion, device)
@@ -83,9 +81,11 @@ def train_model(model, train_iterator, valid_iterator, epochs=5, lr=0.001, save_
             best_valid_loss = valid_res['loss']
             torch.save(model.state_dict(), save_path)
             print(f"\t--> New Best Model Saved! (Val Loss: {valid_res['loss']:.4f})")
-        # output metrics
+        history['train_loss'].append(train_res['loss'])
+        history['train_acc'].append(train_res['acc'])
+        history['valid_loss'].append(valid_res['loss'])
+        history['valid_acc'].append(valid_res['acc'])
         print(f"\tTrain Loss: {train_res['loss']:.3f} | Acc: {train_res['acc']:.3f} | F1: {train_res['f1']:.3f}")
         print(f"\t Val. Loss: {valid_res['loss']:.3f} | Acc: {valid_res['acc']:.3f} | F1: {valid_res['f1']:.3f}")
         print(f"\t Val. Prec: {valid_res['prec']:.3f} | Rec: {valid_res['rec']:.3f}")
-
-    return "Training Complete"
+    return history

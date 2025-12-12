@@ -21,12 +21,18 @@ class QuoraDataset(Dataset):
 
     def __getitem__(self, idx):
         row = self.data.iloc[idx]
-        q1 = str(row['question1'])
-        q2 = str(row['question2'])
+        q1_text = str(row['question1'])
+        q2_text = str(row['question2'])
         label = int(row['is_duplicate'])
-        combined_text = q1 + " " + q2
-        encoded = self.tokenizer(
-            combined_text,
+        encoded_q1 = self.tokenizer(
+            q1_text,
+            padding='max_length',
+            truncation=True,
+            max_length=self.max_length,
+            return_tensors='pt'
+        )
+        encoded_q2 = self.tokenizer(
+            q2_text,
             padding='max_length',
             truncation=True,
             max_length=self.max_length,
@@ -34,6 +40,7 @@ class QuoraDataset(Dataset):
         )
         
         return {
-            'input_ids': encoded['input_ids'].flatten(),
+            'q1': encoded_q1['input_ids'].flatten(),
+            'q2': encoded_q2['input_ids'].flatten(),
             'label': torch.tensor(label, dtype=torch.float)
         }
