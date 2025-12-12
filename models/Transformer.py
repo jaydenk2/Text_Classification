@@ -1,18 +1,22 @@
 import torch
 import torch.nn as nn
 import numpy as np
+import math
 
-# referenced lecture 22 from course material
-# helper functions as described in lecture
+class PositionalEncoding(nn.Module):
+    def __init__(self, embedding_dim, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        pe = torch.zeros(max_len, embedding_dim)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, embedding_dim, 2).float() * (-math.log(10000.0) / embedding_dim))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)
+        self.register_buffer('pe', pe)
 
-class ScaledDotProductAttention(nn.Module):
-    def forward(self, Q, K, V, mask=None):
-        d_k = Q.size(-1)
-        scores = torch.matmul(Q, K.transpose(-2, -1)) / np.sqrt(d_k)
-        if mask is not None:
-            scores = scores.masked_fill(mask == 0, -1e9)
-        attn = torch.softmax(scores, dim=-1)
-        return torch.matmul(attn, V)
+    def forward(self, x):
+        x = x + self.pe[:, :x.size(1), :]
+        return x
 
 class PositionWiseFFN(nn.Module):
     def __init__(self, d_model, d_ff=2048):
@@ -23,91 +27,83 @@ class PositionWiseFFN(nn.Module):
 
     def forward(self, x):
         return self.fc2(self.relu(self.fc1(x)))
-
-class PositionalEncoding(nn.Module):
-    def __init__(self, mode, embedding_dim, max_len=5000):
-        super(PositionalEncoding, self).__init__()
-        self.mode = mode
-        self.embedding_dim = embedding_dim
-        if mode == 'learned':
-            self.embedding = nn.Embedding(max_len, embedding_dim)
     
-    def forward(self, x):
-        if self.mode is None:
-            p = torch.zeros_like(x)
-        elif self.mode == 'sinusoidal':
-            d = self.embedding_dim
-            L = x.size(1) 
-            p = torch.zeros(L, d, device=x.device)
-            for pos in range(L):
-                for i in range(d):
-                    if i % 2 == 0:
-                        p[pos, i] = np.sin(pos / (10000**(i/d)))
-                    else:
-                        p[pos, i] = np.cos(pos / (10000**(i/d)))
-            p = p.unsqueeze(0).expand(x.size(0), -1, -1)
-        elif self.mode == 'learned':
-            pos = torch.arange(x.size(1), device=x.device).unsqueeze(0)
-            p = self.embedding(pos)
-        else:
-            raise Exception("mode should be None, 'sinusoidal', or 'learned'")
-        return p.float()
-
 class MultiheadAttention(nn.Module):
-    def __init__(self, embedding_dim, hidden_dim, n_heads):
-        super(MultiheadAttention, self).__init__()
-        multi_embedding_dim = embedding_dim // n_heads
-        multi_hidden_dim = hidden_dim // n_heads
+    def __init__(self, embedding_dim, n_heads):
+        super().__init__()
+        self.head_dim = embedding_dim // n_heads
         self.n_heads = n_heads
-        
-        self.Q_layers = nn.ModuleList([nn.Linear(hidden_dim, multi_hidden_dim) for _ in range(n_heads)])
-        self.K_layers = nn.ModuleList([nn.Linear(hidden_dim, multi_hidden_dim) for _ in range(n_heads)])
-        self.V_layers = nn.ModuleList([nn.Linear(embedding_dim, multi_embedding_dim) for _ in range(n_heads)])
-        
-        self.attn_head = ScaledDotProductAttention()
-        self.output_linear = nn.Linear(n_heads * multi_embedding_dim, embedding_dim)
+        self.w_q = nn.Linear(embedding_dim, embedding_dim)
+        self.w_k = nn.Linear(embedding_dim, embedding_dim)
+        self.w_v = nn.Linear(embedding_dim, embedding_dim)
+        self.out_proj = nn.Linear(embedding_dim, embedding_dim)
 
-    def forward(self, Q, K, V, mask=None):
-        self_attn_results = torch.cat([
-            self.attn_head(self.Q_layers[i](Q), self.K_layers[i](K), self.V_layers[i](V), mask=mask) 
-            for i in range(self.n_heads)
-        ], dim=-1)
-        
-        multi_attn_output = self.output_linear(self_attn_results)
-        return multi_attn_output
-
-class FullEncoder(nn.Module):
-    def __init__(self, num_embeddings, embedding_dim, hidden_dim, position_mode, n_heads):
-        super(FullEncoder, self).__init__()
-        self.position_encoding = PositionalEncoding(position_mode, embedding_dim)
-        self.multi_head_attention = MultiheadAttention(embedding_dim, hidden_dim, n_heads)
-        self.ffn = PositionWiseFFN(embedding_dim)
-        self.layer_norm = nn.LayerNorm(embedding_dim)
-        self.embedding = nn.Embedding(num_embeddings, embedding_dim)
-        self.fc_Q = nn.Linear(embedding_dim, hidden_dim)
-        self.fc_K = nn.Linear(embedding_dim, hidden_dim)
-        self.fc_V = nn.Linear(embedding_dim, embedding_dim)
-        self.activation = nn.ReLU()
+    def forward(self, q, mask=None):
+        batch_size = q.shape[0]
+        Q = self.w_q(q).view(batch_size, -1, self.n_heads, self.head_dim).transpose(1, 2)
+        K = self.w_k(q).view(batch_size, -1, self.n_heads, self.head_dim).transpose(1, 2)
+        V = self.w_v(q).view(batch_size, -1, self.n_heads, self.head_dim).transpose(1, 2)
+        scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(self.head_dim)
+        if mask is not None:
+             scores = scores.masked_fill(mask == 0, -1e9)
+        attn = torch.softmax(scores, dim=-1)
+        out = torch.matmul(attn, V)
+        out = out.transpose(1, 2).contiguous().view(batch_size, -1, self.n_heads * self.head_dim)
+        return self.out_proj(out)
     
-    def forward(self, x):
-        z = self.embedding(x)
-        z = z + self.position_encoding(z)
-        Q = self.fc_Q(z)
-        K = self.fc_K(z)
-        V = self.fc_V(z)
-        attn_output = self.multi_head_attention(Q, K, V)
-        attn_output = self.layer_norm(attn_output + z)
-        ffn_output = self.ffn(attn_output)
-        encoder_result = self.layer_norm(ffn_output + attn_output)
-        return self.activation(encoder_result)
+class TransformerBlock(nn.Module):
+    def __init__(self, embedding_dim, n_heads, dropout=0.1):
+        super().__init__()
+        self.attention = MultiheadAttention(embedding_dim, n_heads)
+        self.norm1 = nn.LayerNorm(embedding_dim)
+        self.ffn = PositionWiseFFN(embedding_dim, d_ff=embedding_dim*4)
+        self.norm2 = nn.LayerNorm(embedding_dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, mask=None):
+        attn_out = self.attention(x, mask)
+        x = self.norm1(x + self.dropout(attn_out))
+        ffn_out = self.ffn(x)
+        x = self.norm2(x + self.dropout(ffn_out))
+        return x
 
 class TransformerClassifier(nn.Module):
-    def __init__(self, num_embeddings, embedding_dim, hidden_dim, num_classes, n_heads=4):
+    def __init__(self, num_embeddings, embedding_dim, num_classes, n_heads=4, num_layers=2):
         super().__init__()
-        self.encoder = FullEncoder(num_embeddings, embedding_dim, hidden_dim, 'sinusoidal', n_heads)
-        self.fc_out = nn.Linear(embedding_dim, num_classes)
+        self.embedding = nn.Embedding(num_embeddings, embedding_dim, padding_idx=0)
+        self.position_encoding = PositionalEncoding(embedding_dim)
+        self.layers = nn.ModuleList(
+            [TransformerBlock(embedding_dim, n_heads) for _ in range(num_layers)]
+        )
+        self.classifier = nn.Sequential(
+            nn.Linear(embedding_dim * 3, embedding_dim),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(embedding_dim, num_classes)
+        )
 
-    def forward(self, x):
-        encoded = self.encoder(x)
-        pooled = encoded.mean(dim=1)
-        return self.fc_out(pooled)
+    def make_src_mask(self, src): # masked attention
+        mask = (src != 0).unsqueeze(1).unsqueeze(2)
+        return mask
+
+    def forward_one(self, x, mask):
+        x = self.embedding(x)
+        x = self.position_encoding(x)
+        for layer in self.layers:
+            x = layer(x, mask)
+        mask_expanded = mask.squeeze(1).squeeze(1).unsqueeze(-1)
+        x = x * mask_expanded.float()
+        sum_embeddings = x.sum(dim=1)
+        sum_mask = mask_expanded.sum(dim=1).clamp(min=1e-9)
+        pooled = sum_embeddings / sum_mask
+        return pooled
+
+    def forward(self, q1, q2):
+        mask1 = self.make_src_mask(q1)
+        mask2 = self.make_src_mask(q2)
+        u = self.forward_one(q1, mask1)
+        v = self.forward_one(q2, mask2)
+        diff = torch.abs(u - v)
+        
+        combined = torch.cat((u, v, diff), dim=1)
+        return self.classifier(combined)

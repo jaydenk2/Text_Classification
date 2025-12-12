@@ -141,7 +141,6 @@ def main():
         model = TransformerClassifier(
             num_embeddings=vocab_size, 
             embedding_dim=128, 
-            hidden_dim=256, 
             num_classes=num_classes,
             n_heads=4
         )
