@@ -75,12 +75,19 @@ class TransformerClassifier(nn.Module):
         self.layers = nn.ModuleList(
             [TransformerBlock(embedding_dim, n_heads) for _ in range(num_layers)]
         )
-        self.classifier = nn.Sequential(
-            nn.Linear(embedding_dim * 3, embedding_dim),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(embedding_dim, num_classes)
-        )
+        # self.classifier = nn.Sequential(
+        #     nn.Linear(embedding_dim * 3, embedding_dim),
+        #     nn.ReLU(),
+        #     nn.Dropout(0.5),
+        #     nn.Linear(embedding_dim, num_classes)
+        # )
+        
+        self.classifier = nn.Sequential( # USING Element-wise Absolute Difference for second transformer model
+        nn.Linear(embedding_dim * 4, embedding_dim), # Changed from 3 to 4
+        nn.ReLU(),
+        nn.Dropout(0.5),
+        nn.Linear(embedding_dim, num_classes)
+    )
 
     def make_src_mask(self, src): # masked attention
         mask = (src != 0).unsqueeze(1).unsqueeze(2)
@@ -98,12 +105,24 @@ class TransformerClassifier(nn.Module):
         pooled = sum_embeddings / sum_mask
         return pooled
 
-    def forward(self, q1, q2):
+    # def forward(self, q1, q2):
+    #     mask1 = self.make_src_mask(q1)
+    #     mask2 = self.make_src_mask(q2)
+    #     u = self.forward_one(q1, mask1)
+    #     v = self.forward_one(q2, mask2)
+    #     diff = torch.abs(u - v)
+        
+    #     combined = torch.cat((u, v, diff), dim=1)
+    #     return self.classifier(combined)
+    
+    
+    def forward(self, q1, q2): # for second transformer model with element-wise product
         mask1 = self.make_src_mask(q1)
         mask2 = self.make_src_mask(q2)
         u = self.forward_one(q1, mask1)
         v = self.forward_one(q2, mask2)
-        diff = torch.abs(u - v)
         
-        combined = torch.cat((u, v, diff), dim=1)
+        diff = torch.abs(u - v)
+        prod = u * v 
+        combined = torch.cat((u, v, diff, prod), dim=1) 
         return self.classifier(combined)
