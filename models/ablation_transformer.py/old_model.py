@@ -23,17 +23,16 @@ class PositionWiseFFN(nn.Module):
         super(PositionWiseFFN, self).__init__()
         self.fc1 = nn.Linear(d_model, d_ff)
         self.fc2 = nn.Linear(d_ff, d_model)
-        self.act = nn.GELU()
+        self.relu = nn.ReLU()
 
     def forward(self, x):
-        return self.fc2(self.act(self.fc1(x)))
-
+        return self.fc2(self.relu(self.fc1(x)))
+    
 class MultiheadAttention(nn.Module):
     def __init__(self, embedding_dim, n_heads):
         super().__init__()
         self.head_dim = embedding_dim // n_heads
         self.n_heads = n_heads
-        
         self.w_q = nn.Linear(embedding_dim, embedding_dim)
         self.w_k = nn.Linear(embedding_dim, embedding_dim)
         self.w_v = nn.Linear(embedding_dim, embedding_dim)
@@ -51,7 +50,7 @@ class MultiheadAttention(nn.Module):
         out = torch.matmul(attn, V)
         out = out.transpose(1, 2).contiguous().view(batch_size, -1, self.n_heads * self.head_dim)
         return self.out_proj(out)
-
+    
 class TransformerBlock(nn.Module):
     def __init__(self, embedding_dim, n_heads, dropout=0.1):
         super().__init__()
@@ -68,19 +67,6 @@ class TransformerBlock(nn.Module):
         x = self.norm2(x + self.dropout(ffn_out))
         return x
 
-class AttentionPooling(nn.Module):
-    def __init__(self, embedding_dim):
-        super().__init__()
-        self.attn = nn.Linear(embedding_dim, 1)
-
-    def forward(self, x, mask):
-        scores = self.attn(x).squeeze(-1)
-        actual_mask = mask.squeeze(1).squeeze(1) 
-        scores = scores.masked_fill(actual_mask == 0, -1e9)
-        weights = torch.softmax(scores, dim=-1).unsqueeze(-1)
-        pooled = torch.sum(x * weights, dim=1)
-        return pooled
-
 class TransformerClassifier(nn.Module):
     def __init__(self, num_embeddings, embedding_dim, num_classes, n_heads=4, num_layers=2):
         super().__init__()
@@ -89,15 +75,14 @@ class TransformerClassifier(nn.Module):
         self.layers = nn.ModuleList(
             [TransformerBlock(embedding_dim, n_heads) for _ in range(num_layers)]
         )
-        self.pooler = AttentionPooling(embedding_dim) # attention pooling
         self.classifier = nn.Sequential(
-            nn.Linear(embedding_dim * 4, embedding_dim),
-            nn.GELU(),  # GELU Activation
+            nn.Linear(embedding_dim * 3, embedding_dim),
+            nn.ReLU(),
             nn.Dropout(0.5),
             nn.Linear(embedding_dim, num_classes)
         )
 
-    def make_src_mask(self, src):
+    def make_src_mask(self, src): # masked attention
         mask = (src != 0).unsqueeze(1).unsqueeze(2)
         return mask
 
@@ -106,7 +91,11 @@ class TransformerClassifier(nn.Module):
         x = self.position_encoding(x)
         for layer in self.layers:
             x = layer(x, mask)
-        pooled = self.pooler(x, mask) # self attention pooling
+        mask_expanded = mask.squeeze(1).squeeze(1).unsqueeze(-1)
+        x = x * mask_expanded.float()
+        sum_embeddings = x.sum(dim=1)
+        sum_mask = mask_expanded.sum(dim=1).clamp(min=1e-9)
+        pooled = sum_embeddings / sum_mask
         return pooled
 
     def forward(self, q1, q2):
@@ -114,8 +103,7 @@ class TransformerClassifier(nn.Module):
         mask2 = self.make_src_mask(q2)
         u = self.forward_one(q1, mask1)
         v = self.forward_one(q2, mask2)
-        diff = torch.abs(u - v) # element-wise absolute difference
-        prod = u * v
+        diff = torch.abs(u - v)
         
-        combined = torch.cat((u, v, diff, prod), dim=1)
+        combined = torch.cat((u, v, diff), dim=1)
         return self.classifier(combined)
